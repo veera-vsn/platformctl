@@ -5,7 +5,7 @@ from kubernetes import client, config
 from kubernetes.config.config_exception import ConfigException
 from prometheus_client import start_http_server
 
-from platformctl.operator.reconciler import KubernetesReconciler, RECONCILES
+from platformctl.operator.reconciler import RECONCILES, KubernetesReconciler
 
 GROUP = "platform.veera.dev"
 VERSION = "v1alpha1"
