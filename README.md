@@ -2,7 +2,7 @@
 
 A portfolio project that demonstrates platform engineering fundamentals: a Kubernetes `Application` API, a Python operator, a FastAPI control-plane API, a developer CLI, application release history, namespace governance and observability hooks.
 
-> **Status:** MVP implementation. Fifteen unit tests cover resource generation, diagnostics and API input validation. A kind end-to-end workflow is included, but it still needs to be run successfully in your GitHub Actions account or local cluster before describing the full stack as verified experience.
+> **Status:** Working MVP. Fifteen unit tests, Ruff lint, both Docker image builds, Trivy scans and a kind-based operator reconciliation test have passed in GitHub Actions. Trivy currently runs in informational mode (`exit-code: 0`); review findings before making vulnerability thresholds blocking.
 
 ## Architecture
 
