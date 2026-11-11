@@ -1,6 +1,5 @@
 import json
 import os
-from typing import Optional
 
 import requests
 import typer
@@ -10,7 +9,7 @@ app_group = typer.Typer(no_args_is_help=True, help="Manage applications")
 app.add_typer(app_group, name="app")
 
 
-def _request(method: str, path: str, payload: Optional[dict] = None) -> None:
+def _request(method: str, path: str, payload: dict | None = None) -> None:
     base = os.getenv("PLATFORMCTL_API_URL", "http://localhost:8000").rstrip("/")
     try:
         response = requests.request(method, f"{base}{path}", json=payload, timeout=20)
