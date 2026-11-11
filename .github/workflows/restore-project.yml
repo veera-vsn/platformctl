@@ -1,27 +1,27 @@
 name: Restore platformctl source
+
 on:
   push:
-    paths:
-      - "project_payload.b64"
-permissions:
-  contents: write
+    branches: [main]
+
 jobs:
   restore:
     if: ${{ github.event.head_commit.message == 'Bootstrap platformctl source' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Restore source files
         run: |
           python - <<'PY'
-          import base64
           import json
           import lzma
           from pathlib import Path
 
           payload = Path("project_payload.b64")
-          data = json.loads(lzma.decompress(base64.b64decode(payload.read_text())))
+          data = json.loads(lzma.decompress(payload.read_bytes()))
           for name, content in data.items():
               path = Path(name)
               if path.is_absolute() or ".." in path.parts:
