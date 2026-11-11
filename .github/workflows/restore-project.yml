@@ -13,30 +13,54 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Restore source files
+      - name: Restore source files from gzip tar archive
         run: |
           python - <<'PY'
-          import json
-          import lzma
-          from pathlib import Path
+          import base64
+          import gzip
+          import io
+          import tarfile
+          from pathlib import Path, PurePosixPath
 
-          payload = Path("project_payload.b64")
-          data = json.loads(lzma.decompress(payload.read_bytes()))
-          for name, content in data.items():
-              path = Path(name)
-              if path.is_absolute() or ".." in path.parts:
-                  raise ValueError(f"Unsafe archive path: {name}")
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_text(content, encoding="utf-8")
+          payload = Path(".github/platformctl.tar.gz.b64")
+          compressed = base64.b64decode(payload.read_bytes(), validate=True)
+          archive = gzip.decompress(compressed)
+          root = Path.cwd().resolve()
+          restored = 0
+
+          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
+              for member in tar.getmembers():
+                  rel = PurePosixPath(member.name)
+                  if rel.is_absolute() or ".." in rel.parts:
+                      raise ValueError(f"Unsafe archive path: {member.name}")
+                  parts = tuple(p for p in rel.parts if p not in ("", "."))
+                  if not parts:
+                      continue
+                  # Archive contains project-root-relative paths.
+                  target = root.joinpath(*parts)
+                  if not target.resolve().is_relative_to(root):
+                      raise ValueError(f"Archive path escapes checkout: {member.name}")
+                  if member.isdir():
+                      target.mkdir(parents=True, exist_ok=True)
+                  elif member.isfile():
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      source = tar.extractfile(member)
+                      if source is None:
+                          raise ValueError(f"Unable to read archive member: {member.name}")
+                      target.write_bytes(source.read())
+                      restored += 1
+                  else:
+                      raise ValueError(f"Unsupported archive member: {member.name}")
+
           payload.unlink()
-          print(f"Restored {len(data)} project files")
+          Path("project_payload.b64").unlink(missing_ok=True)
+          Path(".github/workflows/restore-project.yml").unlink()
+          print(f"Restored {restored} source files")
           PY
       - name: Commit restored source
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "Add complete platformctl source tree"
-            git push
-          fi
+          git commit -m "Restore complete platformctl source tree"
+          git push
