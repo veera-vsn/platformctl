@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 from platformctl.api.database import get_db, init_db
 from platformctl.api.kube import core_v1_api, custom_objects_api
 from platformctl.api.models import Release
+from platformctl.api.schemas import AppCreate, DeployRequest
 from platformctl.operator.diagnostics import analyse_pods_and_events
 from platformctl.operator.objects import resolve_target_namespace
-from platformctl.api.schemas import AppCreate, DeployRequest
 
 GROUP = "platform.veera.dev"
 VERSION = "v1alpha1"
