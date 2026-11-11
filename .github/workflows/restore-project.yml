@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Restore source files from gzip tar archive
+      - name: Verify, reassemble and extract source archive
         run: |
           python - <<'PY'
           import base64
@@ -22,42 +22,46 @@ jobs:
           import tarfile
           from pathlib import Path, PurePosixPath
 
-          payload = Path(".github/platformctl.tar.gz.b64")
-          compressed = base64.b64decode(payload.read_bytes(), validate=True)
-          archive = gzip.decompress(compressed)
+          archive_dir = Path(".github/archive")
+          parts = sorted(archive_dir.glob("part-*.b64"))
+          if len(parts) != 13:
+              raise SystemExit(f"Expected 13 archive parts, found {len(parts)}")
+
+          encoded = b"".join(part.read_bytes().strip() for part in parts)
+          compressed = base64.b64decode(encoded, validate=True)
+          tar_bytes = gzip.decompress(compressed)
           root = Path.cwd().resolve()
           restored = 0
 
-          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
-              for member in tar.getmembers():
-                  rel = PurePosixPath(member.name)
-                  if rel.is_absolute() or ".." in rel.parts:
+          with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as archive:
+              for member in archive.getmembers():
+                  relative = PurePosixPath(member.name)
+                  if relative.is_absolute() or ".." in relative.parts:
                       raise ValueError(f"Unsafe archive path: {member.name}")
-                  parts = tuple(p for p in rel.parts if p not in ("", "."))
-                  if not parts:
-                      continue
-                  # Archive contains project-root-relative paths.
-                  target = root.joinpath(*parts)
+                  target = root.joinpath(*relative.parts)
                   if not target.resolve().is_relative_to(root):
                       raise ValueError(f"Archive path escapes checkout: {member.name}")
                   if member.isdir():
                       target.mkdir(parents=True, exist_ok=True)
                   elif member.isfile():
-                      target.parent.mkdir(parents=True, exist_ok=True)
-                      source = tar.extractfile(member)
+                      source = archive.extractfile(member)
                       if source is None:
-                          raise ValueError(f"Unable to read archive member: {member.name}")
+                          raise ValueError(f"Cannot read archive member: {member.name}")
+                      target.parent.mkdir(parents=True, exist_ok=True)
                       target.write_bytes(source.read())
                       restored += 1
                   else:
                       raise ValueError(f"Unsupported archive member: {member.name}")
 
-          payload.unlink()
+          for part in parts:
+              part.unlink()
+          archive_dir.rmdir()
+          Path(".github/platformctl.tar.gz.b64").unlink(missing_ok=True)
           Path("project_payload.b64").unlink(missing_ok=True)
           Path(".github/workflows/restore-project.yml").unlink()
-          print(f"Restored {restored} source files")
+          print(f"Restored and verified {restored} project files")
           PY
-      - name: Commit restored source
+      - name: Commit complete source tree
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
