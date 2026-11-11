@@ -1,4 +1,9 @@
-from platformctl.operator.objects import all_application_objects, resolve_target_namespace, target_namespace, workload_objects
+from platformctl.operator.objects import (
+    all_application_objects,
+    resolve_target_namespace,
+    target_namespace,
+    workload_objects,
+)
 
 
 def test_web_application_renders_namespace_quota_deployment_and_service():
