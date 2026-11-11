@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: platformctl-operator
+  namespace: platform-system
+  labels:
+    release: monitoring
+    app.kubernetes.io/part-of: platformctl
+spec:
+  namespaceSelector:
+    matchNames:
+      - platform-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platformctl-operator
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

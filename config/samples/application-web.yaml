@@ -1,0 +1,18 @@
+apiVersion: platform.veera.dev/v1alpha1
+kind: Application
+metadata:
+  name: demo
+  namespace: platform-system
+spec:
+  type: web
+  image: nginxinc/nginx-unprivileged:1.27-alpine
+  version: "1.27"
+  port: 8080
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

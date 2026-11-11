@@ -1,74 +1,225 @@
 # platformctl — Self-Service Kubernetes Application Platform
 
-A platform-engineering portfolio project exploring a self-service control plane for Kubernetes applications.
+A portfolio project that demonstrates platform engineering fundamentals: a Kubernetes `Application` API, a Python operator, a FastAPI control-plane API, a developer CLI, application release history, namespace governance and observability hooks.
+
+> **Status:** MVP implementation. Fifteen unit tests cover resource generation, diagnostics and API input validation. A kind end-to-end workflow is included, but it still needs to be run successfully in your GitHub Actions account or local cluster before describing the full stack as verified experience.
 
 ## Architecture
 
 ```text
-Developer -> platformctl CLI -> FastAPI control plane -> Kubernetes Application CR
-                                      |                         |
-                                      v                         v
-                                  PostgreSQL              Python operator
-                                  release history               |
-                                                                v
-                                             Namespace, quota, limits, workloads
+Developer
+   |
+   +--> platformctl CLI ----> FastAPI control-plane API ----> PostgreSQL release history
+                                      |
+                                      | creates/updates Application CR
+                                      v
+                              Kubernetes API server
+                                      |
+                                      v
+                               Python operator
+                                      |
+                  +-------------------+-------------------+
+                  |                   |                   |
+              Namespace          Workload             Service
+            ResourceQuota       Deployment /         ClusterIP /
+            LimitRange          StatefulSet / Job    headless
+                  |
+                  +----> Kyverno admission policies
+
+Operator metrics :9102 ----> Prometheus ----> Grafana
 ```
 
-The API writes desired application state to a namespaced `Application` custom resource. A Kopf operator reconciles that resource into Kubernetes objects. The CLI calls the API for application lifecycle operations.
+The API stores desired application state in a Kubernetes custom resource. The operator reconciles that desired state into Kubernetes resources. PostgreSQL stores versioned release requests so that rollback can select an earlier image/version.
 
-## Current implementation
+## MVP scope
 
-- Kubernetes `Application` CRD for web, stateful and batch workloads.
-- Python Kopf operator with reconciliation handlers.
-- Resource generation for Namespace, ResourceQuota, LimitRange, Deployment, StatefulSet, Service and Job.
-- FastAPI endpoints for application create, list, inspect, deploy, rollback, diagnostics, release history and delete.
-- PostgreSQL-backed release history (SQLite fallback for local development).
-- Typer-based `platformctl` CLI.
-- Diagnostic analysis for common pod states, scheduling, quota, probe and admission-policy events.
-- Python unit tests and Kubernetes manifests are being added alongside the implementation.
+- `Application` custom resource (`platform.veera.dev/v1alpha1`).
+- Python operator using Kopf; creates an isolated namespace, quota, limit range and workload resources.
+- Web workloads (`Deployment` + `Service`), stateful workloads (`StatefulSet` + headless `Service` + PVC template), and batch workloads (`Job`).
+- FastAPI endpoints to create, deploy, inspect, roll back and delete applications.
+- PostgreSQL release history.
+- `platformctl` CLI for the same lifecycle operations, including common failure diagnostics.
+- A lightweight Streamlit status page and Prometheus/Grafana dashboard starter.
+- Kubernetes RBAC, sample CR and Kyverno policy examples.
+- Prometheus metrics endpoint from the operator.
 
-## Technology
+## Prerequisites
 
-Python, FastAPI, Typer, Kopf, Kubernetes Python client, Kubernetes CRDs, PostgreSQL, SQLAlchemy, Docker, Prometheus client.
+- Python 3.11+
+- Docker and Docker Compose
+- `kubectl`
+- `kind`
+- `helm` (optional, for installing a Prometheus/Grafana stack)
 
-## Local setup
-
-Requires Python 3.11+, Docker, kubectl and a Kubernetes cluster with permission to install the CRD and create namespaces.
+## 1. Install the project
 
 ```bash
+cd platformctl
 python -m venv .venv
+source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
+make install
+cp .env.example .env
+```
+
+## 2. Start PostgreSQL
+
+```bash
+make db-up
+```
+
+The Compose file uses disposable local-development credentials. Do not reuse them outside a local machine.
+
+## 3. Create a local Kubernetes cluster
+
+```bash
+make kind-up
+make crd
+```
+
+The `platform-system` namespace is where the control-plane `Application` resources live. The operator creates a separate target namespace for each application.
+
+## 4. Run the operator
+
+In terminal 1:
+
+```bash
 source .venv/bin/activate
-pip install -e ".[dev]"
+make operator
 ```
 
-Configure `DATABASE_URL` if using PostgreSQL. For local SQLite development, the API defaults to `./platformctl.db`.
+The operator uses your current kubeconfig when running locally. In-cluster execution uses the service account configured in `config/rbac/operator.yaml`.
 
-Apply the CRD and create the control-plane namespace:
+## 5. Run the API
+
+In terminal 2:
 
 ```bash
-kubectl apply -f config/crd/application.yaml
-kubectl create namespace platform-system
+source .venv/bin/activate
+set -a && source .env && set +a   # PowerShell users should set the variables in their shell
+make api
 ```
 
-Run the operator and API in separate terminals:
+API documentation: http://localhost:8000/docs
+
+## 6. Use the CLI
+
+In terminal 3:
 
 ```bash
-kopf run --all-namespaces src/platformctl/operator/main.py
-uvicorn platformctl.api.main:app --reload
-```
-
-Install and use the CLI:
-
-```bash
+source .venv/bin/activate
 platformctl app create demo --type web --image nginxinc/nginx-unprivileged:1.27-alpine --version 1.27 --port 8080
 platformctl app status demo
 platformctl app diagnose demo
+platformctl app deploy demo --image nginxinc/nginx-unprivileged:1.28-alpine --version 1.28
+platformctl app releases demo
+platformctl app rollback demo
+platformctl app delete demo --yes
 ```
 
-## Project status
+The sample image is intentionally non-root compatible with the pod security context generated by the operator.
 
-This is an actively developed portfolio project, not a production-ready Kubernetes platform. Validate the operator and API against a live cluster before relying on end-to-end behavior. Review RBAC, authentication, admission policies, persistence, reconciliation edge cases and CI results before any production use.
+## 7. Verify Kubernetes resources
 
-## License
+```bash
+kubectl get applications -n platform-system
+kubectl get namespaces -l platform.veera.dev/managed=true
+kubectl get deployments,services,statefulsets,jobs -A
+kubectl get resourcequotas,limitranges -A
+```
 
-MIT
+## Governance with Kyverno
+
+Install Kyverno into the local cluster, then apply the policies:
+
+```bash
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm repo update
+helm install kyverno kyverno/kyverno --namespace kyverno --create-namespace
+kubectl apply -f config/policies/
+```
+
+The example policies apply to `app-*` namespaces. Verify them against your installed Kyverno version before treating them as production policy. The local kind CI workflow currently focuses on the operator's lifecycle path; policy enforcement should be enabled as a separate integration-test stage once Kyverno is installed in that cluster.
+
+## Observability with Prometheus and Grafana
+
+The operator exposes Prometheus metrics on port `9102`. With `kube-prometheus-stack` installed:
+
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm install monitoring prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace
+kubectl apply -f deploy/servicemonitor.yaml
+kubectl apply -f deploy/grafana-dashboard-configmap.yaml
+```
+
+The example ServiceMonitor selects the Helm release label `monitoring`. The dashboard ConfigMap uses the Grafana sidecar's `grafana_dashboard: "1"` label. If your Helm release uses a different name or disables the dashboard sidecar, adjust those settings accordingly.
+
+## Optional status UI
+
+Install the UI extra and run `streamlit run ui/app.py`. The UI reads application status from the API and can trigger a diagnostic report.
+
+## Tests and quality checks
+
+```bash
+pytest
+ruff check src tests
+```
+
+Unit tests exercise resource rendering and API schema validation without requiring a live cluster. The GitHub Actions workflow builds both containers, runs Trivy image scans (currently informational with `exit-code: 0`), and includes a kind-based operator reconciliation job. Review the Trivy findings and change `exit-code` to `1` when you are ready to make the vulnerability threshold a CI gate.
+
+## Useful API endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/healthz` | API liveness |
+| `GET` | `/v1/apps` | List applications |
+| `POST` | `/v1/apps` | Register an application |
+| `GET` | `/v1/apps/{name}` | Inspect desired and observed state |
+| `POST` | `/v1/apps/{name}/deploy` | Request a new release |
+| `POST` | `/v1/apps/{name}/rollback` | Request rollback to previous release |
+| `GET` | `/v1/apps/{name}/releases` | Read release history |
+| `GET` | `/v1/apps/{name}/diagnose` | Inspect common pod, scheduling, quota and policy failures |
+| `DELETE` | `/v1/apps/{name}` | Delete application and target namespace |
+
+## Important design notes
+
+- Kubernetes is the source of truth for desired application state; PostgreSQL is the release audit/history store.
+- The operator is idempotent: it creates resources that do not exist and patches resources that already exist.
+- The first version uses namespace deletion as the application cleanup boundary. Production systems would normally use finalizers, explicit retention rules and more granular deletion safeguards.
+- The API and operator need Kubernetes permissions. The API should receive only custom-resource permissions; the operator receives permissions to create and manage the resources it reconciles.
+- Kyverno is an admission-control layer. The policies in `config/policies/` are examples and must be tested against the installed Kyverno version before enforcement in a shared cluster.
+- Do not expose the API publicly without authentication, authorization, rate limiting, audit logging and TLS.
+
+## Publish to GitHub
+
+Create an empty GitHub repository named `platformctl` under your account, then run:
+
+```bash
+git init
+git add .
+git commit -m "Initial platformctl application platform"
+git branch -M main
+git remote add origin https://github.com/veera-vsn/platformctl.git
+git push -u origin main
+```
+
+Do not commit `.env`, kubeconfig files, credentials or cluster state.
+
+## Repository roadmap
+
+1. Validate the MVP lifecycle locally and get the kind end-to-end workflow green.
+2. Governance: validate Kyverno policies, add application ownership and per-team RBAC.
+3. Diagnostics: expand `platformctl app diagnose` with log-tail support, probe history and richer quota analysis.
+4. Observability: add application-level metrics, release markers and dashboard provisioning checks.
+5. CI hardening: make Trivy findings blocking after triage, add SBOM generation and image signing.
+6. UX: expand the Streamlit status page or replace it with a developer portal.
+
+## Resume wording — only after you have implemented and tested the project
+
+**Self-Service Kubernetes Application Platform (`platformctl`)** | Python, FastAPI, Typer, Kopf, Kubernetes, PostgreSQL
+
+- Built a self-service control plane with a FastAPI backend and CLI to register applications, request deployments, inspect status and roll back to previous releases.
+- Implemented a Kubernetes operator that reconciles an `Application` custom resource into isolated namespaces, workload resources, services and resource governance settings.
+- Added PostgreSQL-backed release history and Prometheus metrics to support deployment traceability and platform operations.
+
+Add Kyverno enforcement, Trivy scanning, stateful workloads, batch jobs and production-style diagnostics to the bullets only after each capability is implemented and verified.

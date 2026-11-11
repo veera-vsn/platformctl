@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: platformctl-postgres
+    environment:
+      POSTGRES_DB: platformctl
+      POSTGRES_USER: platformctl
+      POSTGRES_PASSWORD: platformctl
+    ports:
+      - "5432:5432"
+    volumes:
+      - platformctl_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platformctl -d platformctl"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  platformctl_pgdata:

@@ -25,20 +25,51 @@ spec:
               type: object
               required: [type, image, version]
               properties:
-                type: {type: string, enum: [web, stateful, batch]}
-                image: {type: string, minLength: 3}
-                version: {type: string, minLength: 1}
-                port: {type: integer, minimum: 1, maximum: 65535, default: 8080}
-                replicas: {type: integer, minimum: 1, maximum: 20, default: 1}
-                targetNamespace: {type: string, maxLength: 63, pattern: '^app-[a-z0-9]([-a-z0-9]*[a-z0-9])?$'}
-                storage: {type: string, default: 1Gi}
-                mountPath: {type: string, pattern: '^/', maxLength: 256}
-                fsGroup: {type: integer, minimum: 1, maximum: 65535}
+                type:
+                  type: string
+                  enum: [web, stateful, batch]
+                image:
+                  type: string
+                  minLength: 3
+                version:
+                  type: string
+                  minLength: 1
+                port:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+                  default: 8080
+                replicas:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+                  default: 1
+                targetNamespace:
+                  type: string
+                  maxLength: 63
+                  pattern: '^app-[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                storage:
+                  type: string
+                  default: 1Gi
+                mountPath:
+                  type: string
+                  pattern: '^/'
+                  maxLength: 256
+                fsGroup:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
                 resources:
                   type: object
                   properties:
-                    requests: {type: object, additionalProperties: {type: string}}
-                    limits: {type: object, additionalProperties: {type: string}}
+                    requests:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    limits:
+                      type: object
+                      additionalProperties:
+                        type: string
             status:
               type: object
               x-kubernetes-preserve-unknown-fields: true

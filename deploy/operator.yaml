@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platformctl-operator
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/name: platformctl-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platformctl-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platformctl-operator
+    spec:
+      serviceAccountName: platformctl-operator
+      containers:
+        - name: operator
+          image: platformctl-operator:dev
+          imagePullPolicy: IfNotPresent
+          command: ["kopf", "run", "--all-namespaces", "/app/src/platformctl/operator/main.py"]
+          ports:
+            - name: metrics
+              containerPort: 9102
+          readinessProbe:
+            tcpSocket:
+              port: 9102
+            initialDelaySeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 9102
+            initialDelaySeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platformctl-operator-metrics
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/name: platformctl-operator
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9102"
+    prometheus.io/path: "/metrics"
+spec:
+  selector:
+    app.kubernetes.io/name: platformctl-operator
+  ports:
+    - name: metrics
+      port: 9102
+      targetPort: metrics

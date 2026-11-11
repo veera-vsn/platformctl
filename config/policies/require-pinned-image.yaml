@@ -1,0 +1,23 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: platformctl-require-pinned-image
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: disallow-latest-tag
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: ["app-*"]
+      validate:
+        message: "Use an explicit image version; the latest tag is not allowed."
+        deny:
+          conditions:
+            any:
+              - key: "{{ images.containers.*.tag }}"
+                operator: AnyIn
+                value:
+                  - latest

@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platformctl-operator-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  platformctl-operator.json: |
+    {
+      "title": "platformctl Operator",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "15s",
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Reconcile attempts per second",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [{"expr": "sum by (result) (rate(platformctl_reconcile_total[5m]))", "legendFormat": "{{result}}"}]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Reconcile duration p95",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [{"expr": "histogram_quantile(0.95, sum(rate(platformctl_reconcile_seconds_bucket[5m])) by (le))", "legendFormat": "p95"}]
+        }
+      ]
+    }
