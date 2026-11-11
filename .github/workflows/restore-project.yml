@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      workflows: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -37,6 +36,8 @@ jobs:
           with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as archive:
               for member in archive.getmembers():
                   relative = PurePosixPath(member.name)
+                  if relative.as_posix() in {".github/workflows/ci.yml", ".github/workflows/restore-project.yml"}:
+                      continue
                   if relative.is_absolute() or ".." in relative.parts:
                       raise ValueError(f"Unsafe archive path: {member.name}")
                   target = root.joinpath(*relative.parts)
@@ -59,7 +60,6 @@ jobs:
           archive_dir.rmdir()
           Path(".github/platformctl.tar.gz.b64").unlink(missing_ok=True)
           Path("project_payload.b64").unlink(missing_ok=True)
-          Path(".github/workflows/restore-project.yml").unlink()
           print(f"Restored and verified {restored} project files")
           PY
       - name: Commit complete source tree
