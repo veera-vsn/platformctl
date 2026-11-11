@@ -1,0 +1,75 @@
+name: platformctl CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e ".[dev]"
+      - name: Run unit tests
+        run: pytest --cov=platformctl --cov-report=term-missing
+      - name: Lint
+        run: ruff check src tests
+      - name: Build API image
+        run: docker build -f Dockerfile.api -t platformctl-api:${{ github.sha }} .
+      - name: Build operator image
+        run: docker build -f Dockerfile.operator -t platformctl-operator:${{ github.sha }} .
+      - name: Scan API image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: platformctl-api:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+      - name: Scan operator image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: platformctl-operator:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+
+  kind-integration:
+    runs-on: ubuntu-latest
+    needs: unit-test-and-build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install project
+        run: python -m pip install -e ".[dev]"
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: platformctl
+          config: kind/cluster.yaml
+      - name: Build and load operator image
+        run: |
+          docker build -f Dockerfile.operator -t platformctl-operator:dev .
+          kind load docker-image platformctl-operator:dev --name platformctl
+      - name: Install CRD and operator
+        run: |
+          kubectl apply -f deploy/namespace.yaml
+          kubectl apply -f config/crd/application.yaml
+          kubectl apply -f config/rbac/operator.yaml
+          kubectl apply -f deploy/operator.yaml
+          kubectl rollout status deployment/platformctl-operator -n platform-system --timeout=120s
+      - name: Reconcile sample application
+        run: |
+          kubectl apply -f config/samples/application-web.yaml
+          kubectl wait --for=jsonpath='{.status.phase}'=Ready application/demo -n platform-system --timeout=120s
+          kubectl rollout status deployment/demo -n app-demo --timeout=120s
+          kubectl get application demo -n platform-system -o yaml
