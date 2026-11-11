@@ -1,5 +1,5 @@
-from copy import deepcopy
 import re
+from copy import deepcopy
 from typing import Any
 
 DEFAULT_RESOURCES = {
